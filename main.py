@@ -251,13 +251,16 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--db", type=str, default="sqlite:///db.sqlite3")
-    parser.add_argument("--debug", type=str, default=False)
+    parser.add_argument("--debug", type=bool, default=False)
+    parser.add_argument("--log", type=str, default="log.txt")
 
     args = parser.parse_args()
 
     storage = TinyStateStorage()
 
     logger.info("Starting")
+    # change logger to write to file
+    logger.addHandler(logging.FileHandler(args.log))
 
     if args.debug:
         logger.setLevel(logging.DEBUG)
