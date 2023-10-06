@@ -37,8 +37,8 @@ class DBManager:
         self.session.add(task)
         self.session.commit()
 
-    def get_tasks(self) -> list[Type[Task]]:
-        return self.session.query(Task).all()  # type: ignore
+    def get_tasks(self) -> list[Task]:
+        return self.session.query(Task).all()
 
     def update_user(self, user: User):
         self.session.merge(user)
@@ -52,7 +52,10 @@ class DBManager:
         self.session.merge(problem)
         self.session.commit()
 
-    def get_problems(self, task_id: int, user_id: int) -> list[Type[Problem]]:
+    def get_all_problems(self, task_id: int) -> list[Problem]:
+        return self.session.query(Problem).filter(Problem.task_id == task_id).all()
+
+    def get_problems(self, task_id: int, user_id: int = 0) -> list[Problem]:
         # take problems where user is not subbmitted or not subbmitted correctly
         """
                 define this quey in sqlalchmey
@@ -74,8 +77,41 @@ class DBManager:
                     .filter(Submission.correct)
                 )
             )
-            .all()  # type: ignore
+            .all()
         )
+
+    def get_submissions(
+        self, user_id: int, problem_id: int = -1
+    ) -> tuple[list[Submission], list[Submission]]:
+        """
+        returns two lists of submits, first is correct, second is incorrect
+
+        """
+        if problem_id == -1:
+            # if task_id is -1, return submissions for all tasks
+            return (
+                self.session.query(Submission)
+                .filter(Submission.user_id == user_id)
+                .filter(Submission.correct)
+                .all(),
+                self.session.query(Submission)
+                .filter(Submission.user_id == user_id)
+                .filter(~Submission.correct)
+                .all(),
+            )
+        else:
+            return (
+                self.session.query(Submission)
+                .filter(Submission.user_id == user_id)
+                .filter(Submission.problem_id == problem_id)
+                .filter(Submission.correct)
+                .all(),
+                self.session.query(Submission)
+                .filter(Submission.user_id == user_id)
+                .filter(Submission.problem_id == problem_id)
+                .filter(~Submission.correct)
+                .all(),
+            )
 
 
 db = DBManager()

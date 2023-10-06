@@ -354,6 +354,7 @@ def main():
     vk_api = vk_session.get_api()
     try:
         for event in longpoll.listen():
+
             if event.type == VkEventType.MESSAGE_NEW and event.to_me and event.text:
                 if events and args.debug:
                     events.append(event)
