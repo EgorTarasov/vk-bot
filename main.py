@@ -13,7 +13,8 @@ from vk_api.longpoll import VkEventType
 from vk_api.longpoll import VkLongPoll
 from vk_api.utils import get_random_id
 
-from data.db import db
+from db import models
+from db.db import db
 from storage.tiny import TinyStateStorage
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,10 @@ def send_message(
         )
     else:
         vk.messages.send(random_id=get_random_id(), user_id=user_id, message=message)
+
+
+def menu_handler(vk, event: Event, storage):
+    ...
 
 
 def process_event(vk, event: Event, storage):
@@ -119,7 +124,7 @@ def process_event(vk, event: Event, storage):
                     logger.info(
                         f"menu_task_id,{user_id},{event.text},{state['name']},task_found"
                     )
-                    available_problems = db.get_problems(tasks[int(event.text)].task_id)  # type: ignore
+                    available_problems = db.get_problems(tasks[int(event.text)].task_id, user_id)  # type: ignore
                     storage.set_state(
                         user_id,
                         {
@@ -131,7 +136,7 @@ def process_event(vk, event: Event, storage):
                         },
                     )
                     state = storage.get_state(user_id)
-                    if len(state["problems"]) < 1:
+                    if len(state["problems"]) == 0:
                         logger.error(
                             f"menu_task_problems,{user_id},{event.text},{state['name']},problems_not_found"
                         )
@@ -145,11 +150,13 @@ def process_event(vk, event: Event, storage):
                         logger.info(
                             f"menu_task_problems,{user_id},{event.text},{state['name']},problems_found"
                         )
-                        options = "\n".join(state["problems"][0]["options"].split(";"))
+                        a_options = "\n".join(
+                            state["problems"][0]["options"].split(";")
+                        )
                         send_message(
                             vk,
                             user_id,
-                            f"{state['task']['description']}\n\n{options}",
+                            f"{state['task']['description']}\n\n{a_options}",
                             create_keyboard(["к заданиям", "меню"]),
                         )
                 if event.text == "назад":
@@ -187,6 +194,7 @@ def process_event(vk, event: Event, storage):
                     )
             case "problem":
                 state = storage.get_state(user_id)
+
                 if event.text == "к заданиям":
                     logger.info(
                         f"menu_task_problem_task,{user_id},{event.text},{state['name']},transition"
@@ -213,12 +221,39 @@ def process_event(vk, event: Event, storage):
                             ]
                         ),
                     )
+                elif len(state["problems"]) == 0:
+                    logger.info(
+                        f"menu_task_problem,{user_id},{event.text},{state['name']},no_problems_left"
+                    )
+                    storage.set_state(user_id, {"name": "menu"})
+                    send_message(
+                        vk,
+                        user_id,
+                        "Ты решил все задания из этой темы!",
+                        create_keyboard(
+                            [
+                                "Задания",
+                                "Статистика",
+                            ]
+                        ),
+                    )
                 elif event.text == state["problems"][0]["correct_option"]:
                     logger.info(
                         f"menu_task_problem,{user_id},{event.text},{state['name']},correct_answer"
                     )
                     send_message(vk, user_id, "Верно!")
-                    state["problems"].pop(0)
+
+                    solved_problem = state["problems"].pop(0)
+                    db.add_submission(
+                        models.Submission(
+                            user_id=state["id"],
+                            problem_id=solved_problem["problem_id"],
+                            answer=event.text,
+                            submission_time=datetime.datetime.now().isoformat(),
+                            correct=True,
+                        )
+                    )
+
                     storage.set_state(
                         user_id,
                         {
@@ -227,24 +262,54 @@ def process_event(vk, event: Event, storage):
                             "problems": state["problems"],
                         },
                     )
-                    options = "\n".join(state["problems"][0]["options"].split(";"))
-                    send_message(
-                        vk,
-                        user_id,
-                        f"{state['task']['description']}\n\n{options}",
-                        create_keyboard(["К заданиям", "меню"]),
-                    )
+                    if len(state["problems"]) == 0:
+                        logger.info(
+                            f"menu_task_problem,{user_id},{event.text},{state['name']},no_problems_left"
+                        )
+                        storage.set_state(user_id, {"name": "menu"})
+                        send_message(
+                            vk,
+                            user_id,
+                            "Ты решил все задания из этой темы!",
+                            create_keyboard(
+                                [
+                                    "Задания",
+                                    "Статистика",
+                                ]
+                            ),
+                        )
+                    else:
+                        b_options = "\n".join(
+                            state["problems"][0]["options"].split(";")
+                        )
+                        send_message(
+                            vk,
+                            user_id,
+                            f"{state['task']['description']}\n\n{b_options}",
+                            create_keyboard(["К заданиям", "меню"]),
+                        )
+
                 else:
                     logger.info(
                         f"menu_task_problem,{user_id},{event.text},{state['name']},incorrect_answer"
                     )
                     send_message(vk, user_id, "Неверно!")
+                    problem = state["problems"][0]
+                    db.add_submission(
+                        models.Submission(
+                            user_id=state["id"],
+                            problem_id=problem["problem_id"],
+                            answer=event.text,
+                            submission_time=datetime.datetime.now().isoformat(),
+                            correct=False,
+                        )
+                    )
                     keyboard = create_keyboard(["К заданиям", "меню"])
-                    options = "\n".join(state["problems"][0]["options"].split(";"))
+                    c_options = "\n".join(state["problems"][0]["options"].split(";"))
                     send_message(
                         vk,
                         user_id,
-                        f"{state['task']['description']}\n\n{options}",
+                        f"{state['task']['description']}\n\n{c_options}",
                         keyboard,
                     )
 
@@ -252,17 +317,21 @@ def process_event(vk, event: Event, storage):
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--db", type=str, default="sqlite:///db.sqlite3")
     parser.add_argument("--debug", type=bool, default=False)
-    parser.add_argument("--log", type=str, default="log.txt")
+    parser.add_argument("--log", type=bool, default=False)
 
     args = parser.parse_args()
 
     storage = TinyStateStorage()
 
     logger.info("Starting")
-    # change logger to write to file
-    logger.addHandler(logging.FileHandler(args.log))
+
+    if args.log:
+        logging.basicConfig(
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+            filename="data/log.txt",
+        )
 
     if args.debug:
         logger.setLevel(logging.DEBUG)
@@ -293,7 +362,7 @@ def main():
         if events and args.debug:
             import pickle
 
-            with open("test-events.pickle", "wb") as f:
+            with open("data/test-events.pickle", "wb") as f:
                 pickle.dump(events, f)
         logger.info("Keyboard interrupt")
     finally:

@@ -1,8 +1,3 @@
-from typing import List
-from typing import List
-from typing import Type
-from typing import Type
-
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError as sqlalchemyOpError
@@ -14,8 +9,9 @@ from .models import User, Submission, Problem, Task
 
 
 class DBManager:
-    def __init__(self, db_path: str = "data.sqlite3"):
+    def __init__(self, db_path: str = "data/data.sqlite3"):
         self.engine = create_engine(f"sqlite:///{db_path}")
+        print("initind db")
         Base.metadata.create_all(self.engine)
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
@@ -42,7 +38,7 @@ class DBManager:
         self.session.commit()
 
     def get_tasks(self) -> list[Type[Task]]:
-        return self.session.query(Task).all()
+        return self.session.query(Task).all()  # type: ignore
 
     def update_user(self, user: User):
         self.session.merge(user)
@@ -56,8 +52,30 @@ class DBManager:
         self.session.merge(problem)
         self.session.commit()
 
-    def get_problems(self, task_id: int) -> list[Type[Problem]]:
-        return self.session.query(Problem).where(Problem.task_id == task_id).all()
+    def get_problems(self, task_id: int, user_id: int) -> list[Type[Problem]]:
+        # take problems where user is not subbmitted or not subbmitted correctly
+        """
+                define this quey in sqlalchmey
+                select *
+        from problems
+        where task_id = 1 and problem_id not in (
+            select problem_id
+            from submission
+            where user_id = 238864041 and correct
+        );
+        """
+        return (
+            self.session.query(Problem)
+            .filter(Problem.task_id == task_id)
+            .filter(
+                ~Problem.problem_id.in_(
+                    self.session.query(Submission.problem_id)
+                    .filter(Submission.user_id == user_id)
+                    .filter(Submission.correct)
+                )
+            )
+            .all()  # type: ignore
+        )
 
 
 db = DBManager()

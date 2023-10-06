@@ -41,6 +41,7 @@ class Submission(Base):
     problem_id: Mapped[int] = mapped_column(Integer, ForeignKey("problem.problem_id"))
     answer: Mapped[str] = mapped_column(String)
     submission_time: Mapped[str] = mapped_column(String)
+    correct: Mapped[bool] = mapped_column(Boolean)
 
     user = relationship("User", back_populates="submissions")
     problem = relationship("Problem")
@@ -51,6 +52,7 @@ class Submission(Base):
             "user_id": self.user_id,
             "problem_id": self.problem_id,
             "answer": self.answer,
+            "correct": self.correct,
             "submission_time": self.submission_time,
         }
 

@@ -6,7 +6,7 @@ import typing
 
 
 class TinyStateStorage(BaseStateStorage):
-    def __init__(self, db_path: str = "db.json"):
+    def __init__(self, db_path: str = "data/db.json"):
         self.db = TinyDB(db_path)
         self.User = Query()
 

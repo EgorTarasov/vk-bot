@@ -6,3 +6,5 @@ services:
             context: .
         environment:
             VK_TOKEN: ${VK_TOKEN}
+        volumes:
+            - ./data:/app/data
