@@ -1,51 +1,25 @@
-import abc
-import os
+import datetime
 import logging
-from typing import Callable, Any
-from vk_api import VkApi
-from vk_api.vk_api import VkApiMethod
-from vk_api.longpoll import VkLongPoll, VkEventType, Event
-from vk_api.keyboard import VkKeyboard, VkKeyboardColor, VkKeyboardButton
-from vk_api.utils import get_random_id
+import os
+import sys
+import argparse
 
 from dotenv import load_dotenv
-from storage.tiny import TinyStateStorage
+from vk_api import VkApi
+from vk_api.keyboard import VkKeyboard
+from vk_api.keyboard import VkKeyboardColor
+from vk_api.longpoll import Event
+from vk_api.longpoll import VkEventType
+from vk_api.longpoll import VkLongPoll
+from vk_api.utils import get_random_id
+
 from data.db import db
-from data import models
+from storage.tiny import TinyStateStorage
 
-
-storage = TinyStateStorage()
-
-
-class State:
-    def __init__(self, name: str) -> None:
-        self.name = name
-
-    def __call__(self) -> str:
-        return self.name
-
-
-class StateGroup:
-    def __init__(self, states: list[State]) -> None:
-        self.states = states
-        self.current_state = 0
-
-    def next(self):
-        if self.current_state < len(self.states) - 1:
-            self.current_state += 1
-
-    def __call__(self) -> str:
-        return self.states[self.current_state]()
-
-    def __dict__(self) -> dict:
-        return {"states": [state() for state in self.states]}
-
-
-bot_states = StateGroup([State("menu"), State("task"), State("problem")])
+logger = logging.getLogger(__name__)
 
 
 def create_keyboard(buttons: list[str], one_time_: bool = True) -> VkKeyboard:
-
     keyboard = VkKeyboard(one_time=one_time_)
     for button in buttons:
         keyboard.add_button(button, color=VkKeyboardColor.PRIMARY)
@@ -67,34 +41,37 @@ def send_message(
         vk.messages.send(random_id=get_random_id(), user_id=user_id, message=message)
 
 
-def process_event(vk, event: Event):
-
+def process_event(vk, event: Event, storage):
     if event.from_user and event.user_id:
         user_id = event.user_id
         state = storage.get_state(user_id)
+        logger.debug(f"event_info,{user_id},{event.text},{state['name']}")
         if event.text:
             event.text = event.text.lower()
-        logging.debug(f"{user_id},{event.text},{state['name']}")
         match state["name"]:
             case "menu":
                 if event.text == "задания":
-                    avaliable_tasks = db.get_tasks()
+                    available_tasks = db.get_tasks()
                     storage.set_state(user_id, {"name": "task"})
+                    logger.info(
+                        f"menu_task,{user_id},{event.text},{state['name']},transition"
+                    )
                     send_message(
                         vk,
                         user_id,
                         "Доступные задания:",
-                        create_keyboard([f"{task.ege_id}" for task in avaliable_tasks]),
+                        create_keyboard([f"{task.ege_id}" for task in available_tasks]),
                     )
                 elif event.text == "статистика":
                     storage.set_state(user_id, {"name": "stats"})
-                    send_message(
-                        vk,
-                        user_id,
-                        "Статистика:",
-                        create_keyboard(["Назад"]),
+                    logger.info(
+                        f"menu_stats,{user_id},{event.text},{state['name']},transition"
                     )
+                    send_message(vk, user_id, "Статистика:", create_keyboard(["Назад"]))
                 else:
+                    logger.info(
+                        f"menu_buttons,{user_id},{event.text},{state['name']},transition"
+                    )
                     send_message(
                         vk,
                         user_id,
@@ -108,10 +85,12 @@ def process_event(vk, event: Event):
                     )
 
             case "task":
-                avaliable_tasks = db.get_tasks()
-                tasks = {task.ege_id: task for task in avaliable_tasks}
-                print(tasks)
+                available_tasks = db.get_tasks()
+                tasks = {task.ege_id: task for task in available_tasks}
                 if event.text == "меню":
+                    logger.info(
+                        f"task_menu,{user_id},{event.text},{state['name']},transition"
+                    )
                     storage.set_state(user_id, {"name": "menu"})
                     send_message(
                         vk,
@@ -125,33 +104,36 @@ def process_event(vk, event: Event):
                         ),
                     )
                 elif not event.text.isdigit() or int(event.text) not in tasks.keys():
-                    logging.error(
-                        f"{user_id},{event.text},{state['name']},task_not_found"
+                    logger.error(
+                        f"menu_task_id,{user_id},{event.text},{state['name']},task_not_found"
                     )
                     send_message(
                         vk,
                         user_id,
                         "Нет такого задания, выбери задания из клавиатуры",
                         create_keyboard(
-                            [f"{task.ege_id}" for task in avaliable_tasks] + ["Меню"]
+                            [f"{task.ege_id}" for task in available_tasks] + ["Меню"]
                         ),
                     )
                 else:
-                    avaliable_problems = db.get_problems(tasks[int(event.text)].task_id)
+                    logger.info(
+                        f"menu_task_id,{user_id},{event.text},{state['name']},task_found"
+                    )
+                    available_problems = db.get_problems(tasks[int(event.text)].task_id)  # type: ignore
                     storage.set_state(
                         user_id,
                         {
                             "name": "problem",
-                            "task": tasks[int(event.text)].to_dict(),
+                            "task": tasks[int(event.text)].to_dict(),  # type: ignore
                             "problems": [
-                                problem.to_dict() for problem in avaliable_problems
+                                problem.to_dict() for problem in available_problems  # type: ignore
                             ],
                         },
                     )
                     state = storage.get_state(user_id)
                     if len(state["problems"]) < 1:
-                        logging.error(
-                            f"{user_id},{event.text},{state['name']},problems_not_found"
+                        logger.error(
+                            f"menu_task_problems,{user_id},{event.text},{state['name']},problems_not_found"
                         )
                         send_message(
                             vk,
@@ -160,14 +142,20 @@ def process_event(vk, event: Event):
                             create_keyboard(["Меню"]),
                         )
                     else:
+                        logger.info(
+                            f"menu_task_problems,{user_id},{event.text},{state['name']},problems_found"
+                        )
+                        options = "\n".join(state["problems"][0]["options"].split(";"))
                         send_message(
                             vk,
                             user_id,
-                            f"{state['task']['description']}\n {state['problems'][0]['options']}",
+                            f"{state['task']['description']}\n\n{options}",
                             create_keyboard(["к заданиям", "меню"]),
                         )
-
                 if event.text == "назад":
+                    logger.info(
+                        f"menu_task_menu,{user_id},{event.text},{state['name']},transition"
+                    )
                     storage.set_state(user_id, {"name": "menu"})
                     send_message(
                         vk,
@@ -180,9 +168,11 @@ def process_event(vk, event: Event):
                             ]
                         ),
                     )
-
             case "stats":
                 if event.text == "назад":
+                    logger.info(
+                        f"menu_stats_menu,{user_id},{event.text},{state['name']},transition"
+                    )
                     storage.set_state(user_id, {"name": "menu"})
                     send_message(
                         vk,
@@ -198,15 +188,19 @@ def process_event(vk, event: Event):
             case "problem":
                 state = storage.get_state(user_id)
                 if event.text == "к заданиям":
-                    storage.set_state(user_id, {"name": "task"})
-                    avaliable_tasks = db.get_tasks()
-                    send_message(
-                        vk,
-                        user_id,
-                        "Доступные задания:",
-                        create_keyboard([f"{task.ege_id}" for task in avaliable_tasks]),
+                    logger.info(
+                        f"menu_task_problem_task,{user_id},{event.text},{state['name']},transition"
                     )
+                    storage.set_state(user_id, {"name": "task"})
+                    available_tasks = db.get_tasks()
+                    keyboard = create_keyboard(
+                        [f"{task.ege_id}" for task in available_tasks]
+                    )
+                    send_message(vk, user_id, "Доступные задания:", keyboard)
                 elif event.text == "меню":
+                    logger.info(
+                        f"menu_task_problem_menu,{user_id},{event.text},{state['name']},transition"
+                    )
                     storage.set_state(user_id, {"name": "menu"})
                     send_message(
                         vk,
@@ -219,8 +213,10 @@ def process_event(vk, event: Event):
                             ]
                         ),
                     )
-
                 elif event.text == state["problems"][0]["correct_option"]:
+                    logger.info(
+                        f"menu_task_problem,{user_id},{event.text},{state['name']},correct_answer"
+                    )
                     send_message(vk, user_id, "Верно!")
                     state["problems"].pop(0)
                     storage.set_state(
@@ -238,30 +234,65 @@ def process_event(vk, event: Event):
                         create_keyboard(["К заданиям", "меню"]),
                     )
                 else:
+                    logger.info(
+                        f"menu_task_problem,{user_id},{event.text},{state['name']},incorrect_answer"
+                    )
                     send_message(vk, user_id, "Неверно!")
+                    keyboard = create_keyboard(["К заданиям", "меню"])
                     send_message(
                         vk,
                         user_id,
                         f"{state['task']['description']}\n {state['problems'][0]['options']}",
-                        create_keyboard(["К заданиям", "меню"]),
+                        keyboard,
                     )
-                pass
 
 
 def main():
-    logging.basicConfig(level=logging.DEBUG)
+    parser = argparse.ArgumentParser()
 
-    load_dotenv(".env")
+    parser.add_argument("--db", type=str, default="sqlite:///db.sqlite3")
+    parser.add_argument("--debug", type=str, default=False)
+
+    args = parser.parse_args()
+
+    storage = TinyStateStorage()
+
+    logger.info("Starting")
+
+    if args.debug:
+        logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.INFO)
+
+    logger.addHandler(logging.StreamHandler(sys.stdout))
+
     token = os.getenv("VK_TOKEN")
     if token is None:
         raise ValueError("VK_TOKEN not found")
 
+    events = None
+    if args.debug:
+        events = []
+
     vk_session = VkApi(token=token)
+
     longpoll = VkLongPoll(vk_session)
     vk_api = vk_session.get_api()
-    for event in longpoll.listen():
-        if event.type == VkEventType.MESSAGE_NEW and event.to_me and event.text:
-            process_event(vk_api, event)
+    try:
+        for event in longpoll.listen():
+            if event.type == VkEventType.MESSAGE_NEW and event.to_me and event.text:
+                if events and args.debug:
+                    events.append(event)
+                process_event(vk_api, event, storage)
+    except KeyboardInterrupt:
+        if events and args.debug:
+            import pickle
+
+            with open("test-events.pickle", "wb") as f:
+                pickle.dump(events, f)
+        logger.info("Keyboard interrupt")
+    finally:
+        logger.info("Exiting")
 
 
 if __name__ == "__main__":

@@ -1,8 +1,15 @@
+from typing import List
+from typing import List
+from typing import Type
+from typing import Type
+
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError as sqlalchemyOpError
 from typing import Type
 from . import Base
+from .models import Problem
+from .models import Task
 from .models import User, Submission, Problem, Task
 
 
@@ -34,7 +41,7 @@ class DBManager:
         self.session.add(task)
         self.session.commit()
 
-    def get_tasks(self) -> list[Task]:
+    def get_tasks(self) -> list[Type[Task]]:
         return self.session.query(Task).all()
 
     def update_user(self, user: User):
@@ -49,7 +56,7 @@ class DBManager:
         self.session.merge(problem)
         self.session.commit()
 
-    def get_problems(self, task_id: int) -> list[Problem]:
+    def get_problems(self, task_id: int) -> list[Type[Problem]]:
         return self.session.query(Problem).where(Problem.task_id == task_id).all()
 
 
