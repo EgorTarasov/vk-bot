@@ -227,10 +227,11 @@ def process_event(vk, event: Event, storage):
                             "problems": state["problems"],
                         },
                     )
+                    options = "\n".join(state["problems"][0]["options"].split(";"))
                     send_message(
                         vk,
                         user_id,
-                        f"{state['task']['description']}\n {state['problems'][0]['options']}",
+                        f"{state['task']['description']}\n\n{options}",
                         create_keyboard(["К заданиям", "меню"]),
                     )
                 else:
@@ -239,10 +240,11 @@ def process_event(vk, event: Event, storage):
                     )
                     send_message(vk, user_id, "Неверно!")
                     keyboard = create_keyboard(["К заданиям", "меню"])
+                    options = "\n".join(state["problems"][0]["options"].split(";"))
                     send_message(
                         vk,
                         user_id,
-                        f"{state['task']['description']}\n {state['problems'][0]['options']}",
+                        f"{state['task']['description']}\n\n{options}",
                         keyboard,
                     )
 
