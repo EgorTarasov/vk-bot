@@ -42,9 +42,6 @@ def send_message(
         vk.messages.send(random_id=get_random_id(), user_id=user_id, message=message)
 
 
-def menu_handler(vk, event: Event, storage):
-    ...
-
 
 def process_event(vk, event: Event, storage):
     if event.from_user and event.user_id:

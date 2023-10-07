@@ -1,6 +1,7 @@
 import os
 from db.db import DBManager
 from db import models
+from storage.tiny import TinyStateStorage
 import pytest
 
 
@@ -28,6 +29,13 @@ def db_instance():
 
     yield db
     os.remove("test_db.sqlite3")
+
+
+@pytest.fixture
+def storage_instance():
+    storage = TinyStateStorage("test_storage.json")
+    yield storage
+    os.remove("test_storage.json")
 
 
 def test_tasks(db_instance):
@@ -183,3 +191,18 @@ def test_many_stats(db_instance: DBManager):
 def test_problems_not_found(db_instance: DBManager):
     problems = db_instance.get_problems(100)
     assert len(problems) == 0
+
+
+def test_creating_first_state(storage_instance: TinyStateStorage):
+    state = storage_instance.get_state(1)
+    assert state == {"name": "menu"}
+
+
+def test_setting_state(storage_instance: TinyStateStorage):
+
+    state = storage_instance.get_state(1)
+
+    storage_instance.set_state(1, {"name": "task"})
+    state = storage_instance.get_state(1)
+    assert state["name"] == "task"
+    assert state["id"] == 1
